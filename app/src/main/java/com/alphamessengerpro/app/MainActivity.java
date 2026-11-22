@@ -57,12 +57,20 @@ public class MainActivity extends Activity {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl();
                 String scheme = u.getScheme() == null ? "" : u.getScheme();
-                if ("https".equalsIgnoreCase(scheme) && "alpha.gt.tc".equalsIgnoreCase(u.getHost())) return false;
-                if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                // Keep all secure HTTPS redirects inside the app (login providers/subdomains included).
+                if ("https".equalsIgnoreCase(scheme)) return false;
+                // Open phone/email/custom links with Android handlers.
+                if ("tel".equalsIgnoreCase(scheme) || "mailto".equalsIgnoreCase(scheme)) {
                     try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception ignored) {}
                     return true;
                 }
+                // Do not allow insecure HTTP navigation.
                 return true;
+            }
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+                if (Build.VERSION.SDK_INT >= 23 && request.isForMainFrame()) {
+                    Toast.makeText(MainActivity.this, "Page load failed. Check internet or try again.", Toast.LENGTH_LONG).show();
+                }
             }
         });
         webView.setWebChromeClient(new WebChromeClient() {
