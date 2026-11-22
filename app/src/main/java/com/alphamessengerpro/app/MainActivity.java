@@ -2,6 +2,8 @@ package com.alphamessengerpro.app;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
@@ -30,6 +32,8 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> uploadCallback;
     private static final int FILE_CHOOSER_REQ = 5001;
     private static final int WEB_PERMISSION_REQ = 5002;
+    private static final int NOTIFICATION_PERMISSION_REQ = 5003;
+    private static final String MESSAGE_CHANNEL_ID = "alpha_messages_calls";
     private PermissionRequest pendingWebPermission;
     private static final String HOME_URL = "https://alpha.gt.tc/";
 
@@ -64,6 +68,7 @@ public class MainActivity extends Activity {
         root.addView(offlineView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(root);
+        setupNotifications();
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -170,6 +175,24 @@ public class MainActivity extends Activity {
         // Clearing these on every launch previously broke persistent sign-in.
         loadHome();
     }
+
+    private void setupNotifications() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null && manager.getNotificationChannel(MESSAGE_CHANNEL_ID) == null) {
+                NotificationChannel channel = new NotificationChannel(MESSAGE_CHANNEL_ID,
+                        "Messages and calls", NotificationManager.IMPORTANCE_HIGH);
+                channel.setDescription("Incoming chat messages and call alerts");
+                channel.enableVibration(true);
+                manager.createNotificationChannel(channel);
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_REQ);
+        }
+    }
+
 
     private void loadHome() {
         if (webView == null) return;
