@@ -121,7 +121,7 @@ public class MainActivity extends Activity {
                 progressBar.setProgress(newProgress);
                 progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
             }
-            @Override public boolean onShowFileChooser(WebView view, FileChooserParams params, ValueCallback<Uri[]> callback) {
+            @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (uploadCallback != null) uploadCallback.onReceiveValue(null);
                 uploadCallback = callback;
                 Intent intent = params.createIntent();
