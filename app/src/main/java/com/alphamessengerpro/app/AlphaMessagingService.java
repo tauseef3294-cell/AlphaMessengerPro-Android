@@ -21,10 +21,8 @@ public class AlphaMessagingService extends FirebaseMessagingService {
     }
 
     @Override public void onMessageReceived(RemoteMessage message) {
-        String title = message.getNotification() != null && message.getNotification().getTitle() != null
-                ? message.getNotification().getTitle() : message.getData().getOrDefault("sender_name", "Alpha Messenger");
-        String body = message.getNotification() != null && message.getNotification().getBody() != null
-                ? message.getNotification().getBody() : message.getData().getOrDefault("preview", "New message");
+        String title = message.getData().getOrDefault("title", message.getData().getOrDefault("sender_name", "Alpha Messenger"));
+        String body = message.getData().getOrDefault("body", message.getData().getOrDefault("preview", "New message"));
         String chatId = message.getData().getOrDefault("open_chat", message.getData().getOrDefault("sender_id", ""));
         createChannel();
         Intent intent = new Intent(this, MainActivity.class);
