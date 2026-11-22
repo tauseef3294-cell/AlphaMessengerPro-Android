@@ -4,9 +4,11 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.PermissionRequest;
@@ -16,12 +18,18 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
 public class MainActivity extends Activity {
     private WebView webView;
+    private ProgressBar progressBar;
+    private TextView offlineView;
     private ValueCallback<Uri[]> uploadCallback;
     private static final int FILE_CHOOSER_REQ = 5001;
+    private static final int WEB_PERMISSION_REQ = 5002;
     private PermissionRequest pendingWebPermission;
     private static final String HOME_URL = "https://alpha.gt.tc/";
 
@@ -29,9 +37,33 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(0xFF171A2B);
         getWindow().setNavigationBarColor(0xFF10121D);
+
+        FrameLayout root = new FrameLayout(this);
+        root.setBackgroundColor(0xFF10121D);
         webView = new WebView(this);
         webView.setBackgroundColor(0xFF10121D);
-        setContentView(webView);
+        root.addView(webView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+
+        progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        progressBar.setMax(100);
+        progressBar.setProgress(0);
+        FrameLayout.LayoutParams progressParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, dp(3));
+        root.addView(progressBar, progressParams);
+
+        offlineView = new TextView(this);
+        offlineView.setText("Unable to connect to Alpha Messenger Pro\\n\\nCheck your internet connection and tap to retry.");
+        offlineView.setTextColor(Color.WHITE);
+        offlineView.setTextSize(17);
+        offlineView.setGravity(android.view.Gravity.CENTER);
+        offlineView.setPadding(dp(24), dp(24), dp(24), dp(24));
+        offlineView.setBackgroundColor(0xFF10121D);
+        offlineView.setVisibility(View.GONE);
+        offlineView.setOnClickListener(v -> loadHome());
+        root.addView(offlineView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        setContentView(root);
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -39,7 +71,7 @@ public class MainActivity extends Activity {
         s.setDatabaseEnabled(true);
         s.setLoadsImagesAutomatically(true);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        s.setMediaPlaybackRequiresUserGesture(false);
+        s.setMediaPlaybackRequiresUserGesture(true);
         s.setSupportZoom(false);
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
@@ -47,7 +79,8 @@ public class MainActivity extends Activity {
         s.setLoadWithOverviewMode(true);
         s.setAllowFileAccess(false);
         s.setAllowContentAccess(true);
-        s.setUserAgentString(s.getUserAgentString() + " AlphaMessengerAndroid/1.0.0");
+        s.setCacheMode(WebSettings.LOAD_DEFAULT);
+        s.setUserAgentString(s.getUserAgentString() + " AlphaMessengerAndroid/1.0.1");
 
         CookieManager cm = CookieManager.getInstance();
         cm.setAcceptCookie(true);
@@ -57,96 +90,148 @@ public class MainActivity extends Activity {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl();
                 String scheme = u.getScheme() == null ? "" : u.getScheme();
-                // Keep all secure HTTPS redirects inside the app (login providers/subdomains included).
                 if ("https".equalsIgnoreCase(scheme)) return false;
-                // Open phone/email/custom links with Android handlers.
                 if ("tel".equalsIgnoreCase(scheme) || "mailto".equalsIgnoreCase(scheme)) {
                     try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception ignored) {}
                     return true;
                 }
-                // Do not allow insecure HTTP navigation.
                 return true;
+            }
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                offlineView.setVisibility(View.GONE);
+                progressBar.setVisibility(View.VISIBLE);
+                progressBar.setProgress(5);
+            }
+            @Override public void onPageFinished(WebView view, String url) {
+                progressBar.setProgress(100);
+                progressBar.setVisibility(View.GONE);
+                CookieManager.getInstance().flush();
+                offlineView.setVisibility(View.GONE);
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
                 if (Build.VERSION.SDK_INT >= 23 && request.isForMainFrame()) {
-                    Toast.makeText(MainActivity.this, "Page load failed. Check internet or try again.", Toast.LENGTH_LONG).show();
+                    progressBar.setVisibility(View.GONE);
+                    offlineView.setVisibility(View.VISIBLE);
                 }
             }
         });
+
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override public void onProgressChanged(WebView view, int newProgress) {
+                progressBar.setProgress(newProgress);
+                progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
+            }
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (uploadCallback != null) uploadCallback.onReceiveValue(null);
                 uploadCallback = callback;
-                Intent i = params.createIntent();
-                try { startActivityForResult(i, FILE_CHOOSER_REQ); }
-                catch (Exception e) { uploadCallback = null; callback.onReceiveValue(null); Toast.makeText(MainActivity.this, "File picker unavailable", Toast.LENGTH_SHORT).show(); }
+                Intent intent = params.createIntent();
+                try { startActivityForResult(intent, FILE_CHOOSER_REQ); }
+                catch (Exception e) {
+                    uploadCallback = null;
+                    callback.onReceiveValue(null);
+                    Toast.makeText(MainActivity.this, "File picker unavailable", Toast.LENGTH_SHORT).show();
+                }
                 return true;
             }
             @Override public void onPermissionRequest(PermissionRequest request) {
                 runOnUiThread(() -> {
                     if (Build.VERSION.SDK_INT >= 23) {
                         String[] needed = new String[0];
-                        for (String r : request.getResources()) {
-                            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r) && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) needed = append(needed, Manifest.permission.CAMERA);
-                            if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r) && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) needed = append(needed, Manifest.permission.RECORD_AUDIO);
+                        for (String resource : request.getResources()) {
+                            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
+                                    && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED)
+                                needed = append(needed, Manifest.permission.CAMERA);
+                            if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
+                                    && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+                                needed = append(needed, Manifest.permission.RECORD_AUDIO);
                         }
-                        if (needed.length > 0) { pendingWebPermission = request; requestPermissions(needed, 5002); }
-                        else request.grant(request.getResources());
-                    } else request.grant(request.getResources());
+                        if (needed.length > 0) {
+                            pendingWebPermission = request;
+                            requestPermissions(needed, WEB_PERMISSION_REQ);
+                        } else {
+                            request.grant(request.getResources());
+                        }
+                    } else {
+                        request.grant(request.getResources());
+                    }
                 });
             }
-            @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) { callback.invoke(origin, false, false); }
+            @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                callback.invoke(origin, false, false);
+            }
         });
+
         webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
             try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
             catch (Exception e) { Toast.makeText(this, "Unable to open download", Toast.LENGTH_SHORT).show(); }
         });
-        // Always start from a clean authentication state: remove stale WebView cookies/cache
-        // so PHP session from an old/demo screen cannot be silently reused.
-        webView.clearHistory();
-        webView.clearFormData();
-        webView.clearCache(true);
-        android.webkit.WebStorage.getInstance().deleteAllData();
-        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        CookieManager.getInstance().removeAllCookies(value -> {
-            CookieManager.getInstance().flush();
-            webView.post(() -> {
-                webView.clearHistory();
-                webView.loadUrl("https://alpha.gt.tc/index.php");
-            });
-        });
+
+        // Keep cookies, PHP sessions, cache and local web storage across launches.
+        // Clearing these on every launch previously broke persistent sign-in.
+        loadHome();
+    }
+
+    private void loadHome() {
+        if (webView == null) return;
+        offlineView.setVisibility(View.GONE);
+        progressBar.setVisibility(View.VISIBLE);
+        webView.loadUrl(HOME_URL);
+    }
+
+    private int dp(int value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
     }
 
     private String[] append(String[] arr, String val) {
-        String[] n = new String[arr.length + 1];
-        System.arraycopy(arr, 0, n, 0, arr.length);
-        n[arr.length] = val;
-        return n;
+        String[] next = new String[arr.length + 1];
+        System.arraycopy(arr, 0, next, 0, arr.length);
+        next[arr.length] = val;
+        return next;
     }
+
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == FILE_CHOOSER_REQ && uploadCallback != null) {
-            Uri[] result = (resultCode == Activity.RESULT_OK && data != null && data.getData() != null) ? new Uri[]{data.getData()} : null;
-            uploadCallback.onReceiveValue(result); uploadCallback = null;
+            Uri[] result = (resultCode == Activity.RESULT_OK && data != null && data.getData() != null)
+                    ? new Uri[]{data.getData()} : null;
+            uploadCallback.onReceiveValue(result);
+            uploadCallback = null;
         }
     }
+
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
-        if (requestCode == 5002 && pendingWebPermission != null) {
-            boolean granted = true; for (int r : results) if (r != PackageManager.PERMISSION_GRANTED) granted = false;
-            if (granted) pendingWebPermission.grant(pendingWebPermission.getResources()); else pendingWebPermission.deny();
+        if (requestCode == WEB_PERMISSION_REQ && pendingWebPermission != null) {
+            boolean granted = results.length > 0;
+            for (int result : results) if (result != PackageManager.PERMISSION_GRANTED) granted = false;
+            if (granted) pendingWebPermission.grant(pendingWebPermission.getResources());
+            else pendingWebPermission.deny();
             pendingWebPermission = null;
         }
     }
-    @Override protected void onSaveInstanceState(Bundle outState) {
-        // Deliberately do not restore WebView page state: app must start at login.
-        super.onSaveInstanceState(outState);
-    }
+
     @Override public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed();
+        if (offlineView != null && offlineView.getVisibility() == View.VISIBLE) {
+            loadHome();
+        } else if (webView != null && webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
     }
+
     @Override protected void onDestroy() {
-        if (webView != null) { webView.stopLoading(); webView.setWebChromeClient(null); webView.destroy(); }
+        if (uploadCallback != null) {
+            uploadCallback.onReceiveValue(null);
+            uploadCallback = null;
+        }
+        if (webView != null) {
+            webView.stopLoading();
+            webView.setWebChromeClient(null);
+            webView.setWebViewClient(null);
+            webView.destroy();
+            webView = null;
+        }
         super.onDestroy();
     }
 }
