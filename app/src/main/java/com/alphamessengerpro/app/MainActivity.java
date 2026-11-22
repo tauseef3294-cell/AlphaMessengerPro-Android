@@ -101,7 +101,20 @@ public class MainActivity extends Activity {
             try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
             catch (Exception e) { Toast.makeText(this, "Unable to open download", Toast.LENGTH_SHORT).show(); }
         });
-        if (savedInstanceState != null) webView.restoreState(savedInstanceState); else webView.loadUrl(HOME_URL);
+        // Always start from a clean authentication state: remove stale WebView cookies/cache
+        // so PHP session from an old/demo screen cannot be silently reused.
+        webView.clearHistory();
+        webView.clearFormData();
+        webView.clearCache(true);
+        android.webkit.WebStorage.getInstance().deleteAllData();
+        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        CookieManager.getInstance().removeAllCookies(value -> {
+            CookieManager.getInstance().flush();
+            webView.post(() -> {
+                webView.clearHistory();
+                webView.loadUrl("https://alpha.gt.tc/index.php");
+            });
+        });
     }
 
     private String[] append(String[] arr, String val) {
@@ -126,7 +139,7 @@ public class MainActivity extends Activity {
         }
     }
     @Override protected void onSaveInstanceState(Bundle outState) {
-        if (webView != null) webView.saveState(outState);
+        // Deliberately do not restore WebView page state: app must start at login.
         super.onSaveInstanceState(outState);
     }
     @Override public void onBackPressed() {
