@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.GeolocationPermissions;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
@@ -31,6 +32,7 @@ public class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQ = 5001;
     private static final int WEB_PERMISSION_REQ = 5002;
     private PermissionRequest pendingWebPermission;
+    private String pendingOpenChatId = "";
     private static final String HOME_URL = "https://alpha.gt.tc/";
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -64,6 +66,9 @@ public class MainActivity extends Activity {
         root.addView(offlineView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(root);
+        setupNotificationPermission();
+        pendingOpenChatId = getIntent() != null ? getIntent().getStringExtra("open_chat_id") : "";
+        webView.addJavascriptInterface(new NativePushBridge(), "AlphaNative");
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -107,6 +112,7 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(View.GONE);
                 CookieManager.getInstance().flush();
                 offlineView.setVisibility(View.GONE);
+                injectPushRegistrationAndChatOpen();
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
                 if (Build.VERSION.SDK_INT >= 23 && request.isForMainFrame()) {
@@ -169,6 +175,48 @@ public class MainActivity extends Activity {
         // Keep cookies, PHP sessions, cache and local web storage across launches.
         // Clearing these on every launch previously broke persistent sign-in.
         loadHome();
+    }
+
+    private void setupNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 26) {
+            android.app.NotificationManager manager = getSystemService(android.app.NotificationManager.class);
+            if (manager != null && manager.getNotificationChannel("alpha_messages_calls") == null) {
+                android.app.NotificationChannel channel = new android.app.NotificationChannel(
+                        "alpha_messages_calls", "Messages and calls", android.app.NotificationManager.IMPORTANCE_HIGH);
+                channel.setDescription("Incoming messages and call notifications");
+                channel.enableVibration(true);
+                manager.createNotificationChannel(channel);
+            }
+        }
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 5004);
+        }
+    }
+
+    private void injectPushRegistrationAndChatOpen() {
+        if (webView == null) return;
+        String js = "(function(){try{var token=AlphaNative.getPushToken();if(token){var fd=new FormData();fd.append('token',token);fetch('index.php?action=register_push_token',{method:'POST',body:fd,credentials:'same-origin'}).catch(function(){});}var cid=AlphaNative.getPendingChatId();if(cid){fetch('index.php?action=get_chats',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(chats){var c=(chats||[]).find(function(x){return String(x.id)===String(cid);});if(c&&typeof tryOpenChat==='function')tryOpenChat(c.id,c.full_name||c.username,c.username,!!c.has_pin);AlphaNative.clearPendingChatId();}).catch(function(){});}}catch(e){}})();";
+        webView.evaluateJavascript(js, null);
+    }
+
+    private class NativePushBridge {
+        @JavascriptInterface public String getPushToken() {
+            return getSharedPreferences("alpha_fcm", MODE_PRIVATE).getString("token", "");
+        }
+        @JavascriptInterface public String getPendingChatId() {
+            return pendingOpenChatId == null ? "" : pendingOpenChatId;
+        }
+        @JavascriptInterface public void clearPendingChatId() { pendingOpenChatId = ""; }
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && intent.hasExtra("open_chat_id")) {
+            pendingOpenChatId = intent.getStringExtra("open_chat_id");
+            if (webView != null && webView.getProgress() >= 100) injectPushRegistrationAndChatOpen();
+        }
     }
 
     private void loadHome() {
