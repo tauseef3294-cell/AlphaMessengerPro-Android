@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.GeolocationPermissions;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
@@ -31,6 +32,7 @@ public class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQ = 5001;
     private static final int WEB_PERMISSION_REQ = 5002;
     private PermissionRequest pendingWebPermission;
+    private String pendingOpenChatId = "";
     private static final String HOME_URL = "https://alpha.gt.tc/";
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -64,6 +66,8 @@ public class MainActivity extends Activity {
         root.addView(offlineView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(root);
+        pendingOpenChatId = getIntent() != null ? getIntent().getStringExtra("open_chat_id") : "";
+        webView.addJavascriptInterface(new NativePushBridge(), "AlphaNative");
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -171,7 +175,7 @@ public class MainActivity extends Activity {
         loadHome();
     }
 
-    private void loadHome() {
+    private void injectPushRegistrationAndChatOpen() {\n        if (webView == null) return;\n        webView.evaluateJavascript(\"(function(){try{var token=AlphaNative.getPushToken();if(token){var fd=new FormData();fd.append('token',token);fetch('index.php?action=register_push_token',{method:'POST',body:fd,credentials:'same-origin'}).catch(function(){});}var cid=AlphaNative.getPendingChatId();if(cid){fetch('index.php?action=get_chats',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(chats){var c=(chats||[]).find(function(x){return String(x.id)===String(cid);});if(c&&typeof tryOpenChat==='function')tryOpenChat(c.id,c.full_name||c.username,c.username,!!c.has_pin);AlphaNative.clearPendingChatId();}).catch(function(){});}}catch(e){}})();\", null);\n    }\n\n    private class NativePushBridge {\n        @JavascriptInterface public String getPushToken() { return getSharedPreferences(\"alpha_fcm\", MODE_PRIVATE).getString(\"token\", \"\"); }\n        @JavascriptInterface public String getPendingChatId() { return pendingOpenChatId == null ? \"\" : pendingOpenChatId; }\n        @JavascriptInterface public void clearPendingChatId() { pendingOpenChatId = \"\" ; }\n    }\n\n    @Override protected void onNewIntent(Intent intent) {\n        super.onNewIntent(intent);\n        setIntent(intent);\n        if (intent != null && intent.hasExtra(\"open_chat_id\")) {\n            pendingOpenChatId = intent.getStringExtra(\"open_chat_id\");\n            if (webView != null && webView.getProgress() >= 100) injectPushRegistrationAndChatOpen();\n        }\n    }\n\n    private void loadHome() {
         if (webView == null) return;
         offlineView.setVisibility(View.GONE);
         progressBar.setVisibility(View.VISIBLE);
