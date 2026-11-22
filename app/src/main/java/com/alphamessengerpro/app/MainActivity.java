@@ -111,6 +111,7 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(View.GONE);
                 CookieManager.getInstance().flush();
                 offlineView.setVisibility(View.GONE);
+                injectPushRegistrationAndChatOpen();
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
                 if (Build.VERSION.SDK_INT >= 23 && request.isForMainFrame()) {
@@ -175,7 +176,32 @@ public class MainActivity extends Activity {
         loadHome();
     }
 
-    private void injectPushRegistrationAndChatOpen() {\n        if (webView == null) return;\n        webView.evaluateJavascript(\"(function(){try{var token=AlphaNative.getPushToken();if(token){var fd=new FormData();fd.append('token',token);fetch('index.php?action=register_push_token',{method:'POST',body:fd,credentials:'same-origin'}).catch(function(){});}var cid=AlphaNative.getPendingChatId();if(cid){fetch('index.php?action=get_chats',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(chats){var c=(chats||[]).find(function(x){return String(x.id)===String(cid);});if(c&&typeof tryOpenChat==='function')tryOpenChat(c.id,c.full_name||c.username,c.username,!!c.has_pin);AlphaNative.clearPendingChatId();}).catch(function(){});}}catch(e){}})();\", null);\n    }\n\n    private class NativePushBridge {\n        @JavascriptInterface public String getPushToken() { return getSharedPreferences(\"alpha_fcm\", MODE_PRIVATE).getString(\"token\", \"\"); }\n        @JavascriptInterface public String getPendingChatId() { return pendingOpenChatId == null ? \"\" : pendingOpenChatId; }\n        @JavascriptInterface public void clearPendingChatId() { pendingOpenChatId = \"\" ; }\n    }\n\n    @Override protected void onNewIntent(Intent intent) {\n        super.onNewIntent(intent);\n        setIntent(intent);\n        if (intent != null && intent.hasExtra(\"open_chat_id\")) {\n            pendingOpenChatId = intent.getStringExtra(\"open_chat_id\");\n            if (webView != null && webView.getProgress() >= 100) injectPushRegistrationAndChatOpen();\n        }\n    }\n\n    private void loadHome() {
+    private void injectPushRegistrationAndChatOpen() {
+        if (webView == null) return;
+        String js = "(function(){try{var token=AlphaNative.getPushToken();if(token){var fd=new FormData();fd.append('token',token);fetch('index.php?action=register_push_token',{method:'POST',body:fd,credentials:'same-origin'}).catch(function(){});}var cid=AlphaNative.getPendingChatId();if(cid){fetch('index.php?action=get_chats',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(chats){var c=(chats||[]).find(function(x){return String(x.id)===String(cid);});if(c&&typeof tryOpenChat==='function')tryOpenChat(c.id,c.full_name||c.username,c.username,!!c.has_pin);AlphaNative.clearPendingChatId();}).catch(function(){});}}catch(e){}})();";
+        webView.evaluateJavascript(js, null);
+    }
+
+    private class NativePushBridge {
+        @JavascriptInterface public String getPushToken() {
+            return getSharedPreferences("alpha_fcm", MODE_PRIVATE).getString("token", "");
+        }
+        @JavascriptInterface public String getPendingChatId() {
+            return pendingOpenChatId == null ? "" : pendingOpenChatId;
+        }
+        @JavascriptInterface public void clearPendingChatId() { pendingOpenChatId = ""; }
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && intent.hasExtra("open_chat_id")) {
+            pendingOpenChatId = intent.getStringExtra("open_chat_id");
+            if (webView != null && webView.getProgress() >= 100) injectPushRegistrationAndChatOpen();
+        }
+    }
+
+    private void loadHome() {
         if (webView == null) return;
         offlineView.setVisibility(View.GONE);
         progressBar.setVisibility(View.VISIBLE);
